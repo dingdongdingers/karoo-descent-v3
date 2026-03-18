@@ -1,10 +1,10 @@
 package io.hammerhead.descentsegs.ui
 
-import android.app.Activity
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import io.hammerhead.descentsegs.R
@@ -14,7 +14,7 @@ import io.hammerhead.descentsegs.data.WORK_NAME
 import io.hammerhead.descentsegs.data.scheduleMonthlySync
 import io.hammerhead.descentsegs.data.syncNow
 
-class SetupActivity : Activity() {
+class SetupActivity : AppCompatActivity() {
 
     private lateinit var creds: StravaCredentials
     private lateinit var repo: SegmentRepository
