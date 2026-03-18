@@ -22,9 +22,9 @@ import kotlinx.coroutines.cancel
 
 private const val TAG = "DescentSegExt"
 const val DATATYPE_ID = "descent-segment-display"
-const val EXTENSION_ID = "io.hammerhead.descentsegs"
+const val EXTENSION_ID = "descentsegs"
 
-class DescentSegmentExtension : KarooExtension(EXTENSION_ID, "1") {
+const val EXTENSION_ID = "descentsegs"
 
     private lateinit var karooSystem: KarooSystemService
     private val tracker = SegmentTracker()
