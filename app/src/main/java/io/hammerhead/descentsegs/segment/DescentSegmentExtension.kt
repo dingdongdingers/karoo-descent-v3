@@ -11,6 +11,8 @@ import io.hammerhead.karooext.extension.DataTypeImpl
 import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.internal.Emitter
 import io.hammerhead.karooext.internal.ViewEmitter
+import io.hammerhead.karooext.models.DataPoint
+import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.OnLocationChanged
 import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.UpdateGraphicConfig
@@ -21,17 +23,17 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 
 private const val TAG = "DescentSegExt"
+private const val EXTENSION_ID = "descentsegs"
 const val DATATYPE_ID = "descent-segment-display"
-const val EXTENSION_ID = "descentsegs"
 
-const val EXTENSION_ID = "descentsegs"
+class DescentSegmentExtension : KarooExtension(EXTENSION_ID, "1") {
 
     private lateinit var karooSystem: KarooSystemService
     private val tracker = SegmentTracker()
     private val repo by lazy { SegmentRepository(applicationContext) }
 
     override val types by lazy {
-        listOf(DescentSegmentDataType(EXTENSION_ID, karooSystem, tracker, repo, applicationContext))
+        listOf(DescentSegmentDataType(EXTENSION_ID, karooSystem, tracker, repo))
     }
 
     override fun onCreate() {
@@ -52,23 +54,19 @@ class DescentSegmentDataType(
     private val karooSystem: KarooSystemService,
     private val tracker: SegmentTracker,
     private val repo: SegmentRepository,
-    private val ctx: Context,
 ) : DataTypeImpl(extension, DATATYPE_ID) {
 
     private val scope = CoroutineScope(Dispatchers.Default + Job())
 
     override fun startStream(emitter: Emitter<StreamState>) {
-        emitter.onNext(StreamState.Streaming(io.hammerhead.karooext.models.DataPoint(
-            dataTypeId, mapOf(io.hammerhead.karooext.models.DataType.Field.SINGLE to 0.0)
-        )))
+        emitter.onNext(StreamState.Streaming(
+            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to 0.0))
+        ))
     }
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         emitter.onNext(UpdateGraphicConfig(showHeader = false))
-
         val segments = repo.getSegments()
-
-        // Show idle state immediately
         emitter.updateView(buildIdleViews(context))
 
         karooSystem.addConsumer { event: OnLocationChanged ->
@@ -85,7 +83,6 @@ class DescentSegmentDataType(
             emitter.updateView(views)
         }
 
-   
         emitter.setCancellable { scope.cancel() }
     }
 
@@ -95,12 +92,10 @@ class DescentSegmentDataType(
     private fun buildActiveViews(context: Context, status: SegmentStatus): RemoteViews {
         val rv = RemoteViews(context.packageName, R.layout.datafield_active)
         val seg = status.segment ?: return buildIdleViews(context)
-
         rv.setTextViewText(R.id.tv_segment_name, seg.name)
         rv.setTextViewText(R.id.tv_elapsed, formatTime(status.elapsedSeconds))
         rv.setTextViewText(R.id.tv_pr, seg.prSeconds?.let { formatTime(it) } ?: "--:--")
         rv.setTextViewText(R.id.tv_kom, seg.komSeconds?.let { formatTime(it) } ?: "--:--")
-
         val delta = status.deltaVsPrSeconds
         if (delta != null) {
             val ahead = delta <= 0
