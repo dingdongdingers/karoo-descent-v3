@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Descent Segments</string>
+    <string name="status_idle">Not configured</string>
+    <string name="status_syncing">Syncing segments…</string>
+    <string name="status_ok">Ready — %1$d segments loaded</string>
+    <string name="status_error">Error: %1$s</string>
+    <string name="btn_save">Save &amp; Sync Segments</string>
+    <string name="btn_sync_now">Sync Now</string>
+</resources>

@@ -1,0 +1,6 @@
+-keep class io.hammerhead.** { *; }
+-keep class io.hammerhead.descentsegs.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keepattributes *Annotation*, InnerClasses
+-keepclassmembers @kotlinx.serialization.Serializable class ** { *** Companion; }

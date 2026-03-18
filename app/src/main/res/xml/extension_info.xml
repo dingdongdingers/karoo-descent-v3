@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ExtensionInfo
+    id="io.hammerhead.descentsegs"
+    displayName="Descent Segments"
+    scansDevices="false">
+
+    <DataType
+        typeId="descent-segment-display"
+        displayName="Descent Segment"
+        description="Live data for starred descending segments"
+        graphical="true" />
+
+</ExtensionInfo>

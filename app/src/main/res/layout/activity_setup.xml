@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A1A1A"
+    android:padding="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Descent Segments"
+            android:textColor="#FF6B00"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enter your Strava API credentials. See the README for how to get these from strava.com/settings/api."
+            android:textColor="#AAAAAA"
+            android:textSize="13sp"
+            android:layout_marginBottom="20dp" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Client ID" android:textColor="#FFFFFF" android:textSize="14sp"
+            android:layout_marginBottom="4dp"/>
+        <EditText android:id="@+id/et_client_id"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="number" android:textColor="#FFFFFF" android:textColorHint="#666666"
+            android:background="#2A2A2A" android:padding="12dp" android:layout_marginBottom="16dp"
+            android:hint="Your Strava Client ID"/>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Client Secret" android:textColor="#FFFFFF" android:textSize="14sp"
+            android:layout_marginBottom="4dp"/>
+        <EditText android:id="@+id/et_client_secret"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="textPassword" android:textColor="#FFFFFF" android:textColorHint="#666666"
+            android:background="#2A2A2A" android:padding="12dp" android:layout_marginBottom="16dp"
+            android:hint="Your Strava Client Secret"/>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Refresh Token" android:textColor="#FFFFFF" android:textSize="14sp"
+            android:layout_marginBottom="4dp"/>
+        <EditText android:id="@+id/et_refresh_token"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:inputType="textPassword" android:textColor="#FFFFFF" android:textColorHint="#666666"
+            android:background="#2A2A2A" android:padding="12dp" android:layout_marginBottom="24dp"
+            android:hint="Your Strava Refresh Token"/>
+
+        <Button android:id="@+id/btn_save"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/btn_save"
+            android:backgroundTint="#FF6B00" android:textColor="#FFFFFF"
+            android:layout_marginBottom="12dp"/>
+
+        <Button android:id="@+id/btn_sync_now"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/btn_sync_now"
+            android:backgroundTint="#333333" android:textColor="#FFFFFF"
+            android:layout_marginBottom="20dp"/>
+
+        <TextView android:id="@+id/tv_status"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/status_idle"
+            android:textColor="#AAAAAA" android:textSize="13sp"
+            android:gravity="center" android:layout_marginBottom="20dp"/>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Loaded Segments" android:textColor="#FFFFFF"
+            android:textSize="14sp" android:textStyle="bold" android:layout_marginBottom="8dp"/>
+
+        <TextView android:id="@+id/tv_segment_list"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="None yet" android:textColor="#AAAAAA" android:textSize="12sp"/>
+
+    </LinearLayout>
+</ScrollView>
