@@ -12,7 +12,6 @@ import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.internal.Emitter
 import io.hammerhead.karooext.internal.ViewEmitter
 import io.hammerhead.karooext.models.OnLocationChanged
-import io.hammerhead.karooext.models.RideState
 import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.UpdateGraphicConfig
 import io.hammerhead.karooext.models.ViewConfig
@@ -86,13 +85,7 @@ class DescentSegmentDataType(
             emitter.updateView(views)
         }
 
-        karooSystem.addConsumer { event: RideState ->
-            if (event == RideState.IDLE) {
-                tracker.reset()
-                emitter.updateView(buildIdleViews(context))
-            }
-        }
-
+   
         emitter.setCancellable { scope.cancel() }
     }
 
