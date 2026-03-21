@@ -3,7 +3,7 @@ package io.hammerhead.descentsegs.segment
 import io.hammerhead.descentsegs.data.CachedSegment
 
 private const val APPROACH_RADIUS_M = 300.0
-private const val TRIGGER_RADIUS_M = 25.0
+private const val TRIGGER_RADIUS_M = 15.0
 private const val FINISH_RADIUS_M = 40.0
 
 enum class SegmentState { IDLE, APPROACHING, ACTIVE, FINISHED }
