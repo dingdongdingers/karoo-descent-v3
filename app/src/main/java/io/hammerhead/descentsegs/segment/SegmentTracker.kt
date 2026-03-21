@@ -14,6 +14,7 @@ data class SegmentStatus(
     val elapsedSeconds: Int = 0,
     val distanceToStartMetres: Int = 0,
     val deltaVsPrSeconds: Int? = null,
+    val triggerBeep: Boolean = false,
 )
 
 class SegmentTracker {
@@ -97,7 +98,7 @@ class SegmentTracker {
         beepedForSegmentId = null
     }
 
-    private fun buildStatus(
+private fun buildStatus(
         seg: CachedSegment,
         nowMs: Long,
         distToStart: Double,
