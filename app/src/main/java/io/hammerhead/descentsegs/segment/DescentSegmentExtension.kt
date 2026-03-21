@@ -75,6 +75,9 @@ class DescentSegmentDataType(
             Log.d(TAG, "KarooSystem connected=$connected")
             if (!connected) return@connect
 
+            var lastState = SegmentState.IDLE
+            var lastDistBucket = -1
+
             karooSystem.addConsumer { event: OnLocationChanged ->
                 val status = tracker.onLocation(
                     lat = event.lat,
@@ -94,12 +97,23 @@ class DescentSegmentDataType(
                     ))
                 }
 
-                val views = when (status.state) {
-                    SegmentState.APPROACHING -> buildApproachingViews(context, status)
-                    SegmentState.ACTIVE, SegmentState.FINISHED -> buildActiveViews(context, status)
-                    else -> buildIdleViews(context)
+                // Only update view when something meaningful changes
+                val distBucket = status.distanceToStartMetres / 5
+                val stateChanged = status.state != lastState
+                val shouldUpdate = stateChanged ||
+                    (status.state == SegmentState.APPROACHING && distBucket != lastDistBucket) ||
+                    (status.state == SegmentState.ACTIVE || status.state == SegmentState.FINISHED)
+
+                if (shouldUpdate) {
+                    lastState = status.state
+                    lastDistBucket = distBucket
+                    val views = when (status.state) {
+                        SegmentState.APPROACHING -> buildApproachingViews(context, status)
+                        SegmentState.ACTIVE, SegmentState.FINISHED -> buildActiveViews(context, status)
+                        else -> buildIdleViews(context)
+                    }
+                    emitter.updateView(views)
                 }
-                emitter.updateView(views)
             }
         }
 
@@ -122,19 +136,4 @@ class DescentSegmentDataType(
         rv.setTextViewText(R.id.tv_segment_name, seg.name)
         rv.setTextViewText(R.id.tv_elapsed, formatTime(status.elapsedSeconds))
         rv.setTextViewText(R.id.tv_pr, seg.prSeconds?.let { formatTime(it) } ?: "--:--")
-        rv.setTextViewText(R.id.tv_kom, seg.komSeconds?.let { formatTime(it) } ?: "--:--")
-        val delta = status.deltaVsPrSeconds
-        if (delta != null) {
-            val ahead = delta <= 0
-            val color = context.getColor(if (ahead) R.color.ahead else R.color.behind)
-            rv.setTextViewText(R.id.tv_delta_label, if (ahead) "AHEAD" else "BEHIND")
-            rv.setTextColor(R.id.tv_delta_label, color)
-            rv.setTextViewText(R.id.tv_delta, formatDelta(delta))
-            rv.setTextColor(R.id.tv_delta, color)
-        } else {
-            rv.setTextViewText(R.id.tv_delta_label, "")
-            rv.setTextViewText(R.id.tv_delta, "--:--")
-        }
-        return rv
-    }
-}
+        rv.setTextViewText(R.id.tv_kom, seg.komSeconds?.let { formatTime(it) } ?: "--:--
