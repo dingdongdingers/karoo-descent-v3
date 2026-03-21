@@ -98,7 +98,9 @@ class SetupActivity : AppCompatActivity() {
         val segs = repo.getSegments()
         tvStatus.text = if (segs.isEmpty()) getString(R.string.status_idle)
                         else getString(R.string.status_ok, segs.size)
-        tvSegmentList.text = if (segs.isEmpty()) "None yet — save credentials and tap Sync Now."
+        val filePath = creds.credentialsFilePath()
+        tvSegmentList.text = if (segs.isEmpty())
+            "None yet — save credentials and tap Sync Now.\n\nTip: You can also create a credentials file at:\n$filePath\n\nFormat:\nclient_id=YOUR_ID\nclient_secret=YOUR_SECRET\nrefresh_token=YOUR_TOKEN"
         else segs.joinToString("\n") { s ->
             val pr = s.prSeconds?.let { " | PR ${fmt(it)}" } ?: ""
             val kom = s.komSeconds?.let { " | KOM ${fmt(it)}" } ?: ""
