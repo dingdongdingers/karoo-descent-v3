@@ -14,13 +14,10 @@ import io.hammerhead.karooext.internal.ViewEmitter
 import io.hammerhead.karooext.models.DataPoint
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.OnLocationChanged
+import io.hammerhead.karooext.models.PlayBeepPattern
 import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.UpdateGraphicConfig
 import io.hammerhead.karooext.models.ViewConfig
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 
 private const val TAG = "DescentSegExt"
 private const val EXTENSION_ID = "descentsegs"
@@ -28,66 +25,96 @@ const val DATATYPE_ID = "descent-segment-display"
 
 class DescentSegmentExtension : KarooExtension(EXTENSION_ID, "1") {
 
-    private lateinit var karooSystem: KarooSystemService
-    private val tracker = SegmentTracker()
-    private val repo by lazy { SegmentRepository(applicationContext) }
-
     override val types by lazy {
-        listOf(DescentSegmentDataType(EXTENSION_ID, karooSystem, tracker, repo))
+        listOf(DescentSegmentDataType(EXTENSION_ID, applicationContext))
     }
 
     override fun onCreate() {
         super.onCreate()
-        karooSystem = KarooSystemService(applicationContext)
-        karooSystem.connect { Log.d(TAG, "Karoo system connected") }
+        Log.d(TAG, "Extension created")
         scheduleMonthlySync(applicationContext)
     }
 
     override fun onDestroy() {
-        karooSystem.disconnect()
         super.onDestroy()
+        Log.d(TAG, "Extension destroyed")
     }
 }
 
 class DescentSegmentDataType(
     extension: String,
-    private val karooSystem: KarooSystemService,
-    private val tracker: SegmentTracker,
-    private val repo: SegmentRepository,
+    private val appContext: Context,
 ) : DataTypeImpl(extension, DATATYPE_ID) {
 
-    private val scope = CoroutineScope(Dispatchers.Default + Job())
+    private val tracker = SegmentTracker()
+    private val repo = SegmentRepository(appContext)
 
     override fun startStream(emitter: Emitter<StreamState>) {
+        Log.d(TAG, "startStream called")
         emitter.onNext(StreamState.Streaming(
             DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to 0.0))
         ))
     }
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
-        emitter.onNext(UpdateGraphicConfig(showHeader = false))
-        val segments = repo.getSegments()
-        emitter.updateView(buildIdleViews(context))
+        Log.d(TAG, "startView called, preview=${config.preview}")
 
-        karooSystem.addConsumer { event: OnLocationChanged ->
-            val status = tracker.onLocation(
-                lat = event.lat,
-                lng = event.lng,
-                nowMs = System.currentTimeMillis(),
-                segments = segments,
-            )
-            val views = when (status.state) {
-                SegmentState.ACTIVE, SegmentState.FINISHED -> buildActiveViews(context, status)
-                else -> buildIdleViews(context)
-            }
-            emitter.updateView(views)
+        if (config.preview) {
+            emitter.updateView(buildIdleViews(context))
+            return
         }
 
-        emitter.setCancellable { scope.cancel() }
+        val segments = repo.getSegments()
+        Log.d(TAG, "Loaded ${segments.size} segments for tracking")
+
+        emitter.onNext(UpdateGraphicConfig(showHeader = false))
+        emitter.updateView(buildIdleViews(context))
+
+        val karooSystem = KarooSystemService(appContext)
+        karooSystem.connect { connected ->
+            Log.d(TAG, "KarooSystem connected=$connected")
+            if (!connected) return@connect
+
+            karooSystem.addConsumer { event: OnLocationChanged ->
+                val status = tracker.onLocation(
+                    lat = event.lat,
+                    lng = event.lng,
+                    nowMs = System.currentTimeMillis(),
+                    segments = segments,
+                )
+
+                // Fire beep on approach
+                if (status.triggerBeep) {
+                    karooSystem.dispatch(PlayBeepPattern(
+                        listOf(
+                            PlayBeepPattern.Tone(frequency = 1800, durationMs = 100),
+                            PlayBeepPattern.Tone(frequency = null, durationMs = 50),
+                            PlayBeepPattern.Tone(frequency = 1800, durationMs = 100),
+                        )
+                    ))
+                }
+
+                val views = when (status.state) {
+                    SegmentState.APPROACHING -> buildApproachingViews(context, status)
+                    SegmentState.ACTIVE, SegmentState.FINISHED -> buildActiveViews(context, status)
+                    else -> buildIdleViews(context)
+                }
+                emitter.updateView(views)
+            }
+        }
+
+        emitter.setCancellable { karooSystem.disconnect() }
     }
 
     private fun buildIdleViews(context: Context): RemoteViews =
         RemoteViews(context.packageName, R.layout.datafield_idle)
+
+    private fun buildApproachingViews(context: Context, status: SegmentStatus): RemoteViews {
+        val rv = RemoteViews(context.packageName, R.layout.datafield_approaching)
+        rv.setTextViewText(R.id.tv_approach_name, "↓ ${status.segment?.name ?: ""}")
+        rv.setTextViewText(R.id.tv_approach_dist, "${status.distanceToStartMetres}m")
+        return rv
+    }
 
     private fun buildActiveViews(context: Context, status: SegmentStatus): RemoteViews {
         val rv = RemoteViews(context.packageName, R.layout.datafield_active)
