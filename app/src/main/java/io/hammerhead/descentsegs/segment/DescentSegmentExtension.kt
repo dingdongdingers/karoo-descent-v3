@@ -123,10 +123,11 @@ class DescentSegmentDataType(
     private fun buildIdleViews(context: Context): RemoteViews =
         RemoteViews(context.packageName, R.layout.datafield_idle)
 
-    private fun buildApproachingViews(context: Context, status: SegmentStatus): RemoteViews {
+private fun buildApproachingViews(context: Context, status: SegmentStatus): RemoteViews {
         val rv = RemoteViews(context.packageName, R.layout.datafield_approaching)
         rv.setTextViewText(R.id.tv_approach_name, "↓ ${status.segment?.name ?: ""}")
-        rv.setTextViewText(R.id.tv_approach_dist, "${status.distanceToStartMetres}m")
+        val distText = if (status.distanceToStartMetres > 50) "${status.distanceToStartMetres}m" else "GO!"
+        rv.setTextViewText(R.id.tv_approach_dist, distText)
         return rv
     }
 
