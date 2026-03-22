@@ -136,4 +136,19 @@ class DescentSegmentDataType(
         rv.setTextViewText(R.id.tv_segment_name, seg.name)
         rv.setTextViewText(R.id.tv_elapsed, formatTime(status.elapsedSeconds))
         rv.setTextViewText(R.id.tv_pr, seg.prSeconds?.let { formatTime(it) } ?: "--:--")
-        rv.setTextViewText(R.id.tv_kom, seg.komSeconds?.let { formatTime(it) } ?: "--:--
+        rv.setTextViewText(R.id.tv_kom, seg.komSeconds?.let { formatTime(it) } ?: "--:--")
+        val delta = status.deltaVsPrSeconds
+        if (delta != null) {
+            val ahead = delta <= 0
+            val color = context.getColor(if (ahead) R.color.ahead else R.color.behind)
+            rv.setTextViewText(R.id.tv_delta_label, if (ahead) "AHEAD" else "BEHIND")
+            rv.setTextColor(R.id.tv_delta_label, color)
+            rv.setTextViewText(R.id.tv_delta, formatDelta(delta))
+            rv.setTextColor(R.id.tv_delta, color)
+        } else {
+            rv.setTextViewText(R.id.tv_delta_label, "")
+            rv.setTextViewText(R.id.tv_delta, "--:--")
+        }
+        return rv
+    }
+}
