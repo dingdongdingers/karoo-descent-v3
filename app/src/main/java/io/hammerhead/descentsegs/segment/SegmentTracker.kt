@@ -14,6 +14,7 @@ data class SegmentStatus(
     val state: SegmentState = SegmentState.IDLE,
     val segment: CachedSegment? = null,
     val distanceToStartMetres: Int = 0,
+    val distanceRemainingMetres: Double = 0.0,
     val deltaVsKomSeconds: Int? = null,
     val triggerBeep: Boolean = false,
 )
@@ -42,14 +43,14 @@ class SegmentTracker {
                         state = SegmentState.ACTIVE
                         activeSegment = nearest
                         startTimeMs = nowMs
-                        buildStatus(nearest, nowMs, 0.0)
+                        buildStatus(nearest, nowMs, 0.0, lat, lng)
                     }
                     dist <= APPROACH_RADIUS_M -> {
                         state = SegmentState.APPROACHING
                         activeSegment = nearest
                         val beep = beepedForSegmentId != nearest.id
                         if (beep) beepedForSegmentId = nearest.id
-                        buildStatus(nearest, nowMs, dist, triggerBeep = beep)
+                        buildStatus(nearest, nowMs, dist, lat, lng, triggerBeep = beep)
                     }
                     else -> SegmentStatus(state = SegmentState.IDLE)
                 }
@@ -65,9 +66,9 @@ class SegmentTracker {
                     dist <= TRIGGER_RADIUS_M -> {
                         state = SegmentState.ACTIVE
                         startTimeMs = nowMs
-                        buildStatus(seg, nowMs, 0.0)
+                        buildStatus(seg, nowMs, 0.0, lat, lng)
                     }
-                    dist <= APPROACH_RADIUS_M -> buildStatus(seg, nowMs, dist)
+                    dist <= APPROACH_RADIUS_M -> buildStatus(seg, nowMs, dist, lat, lng)
                     else -> {
                         state = SegmentState.IDLE
                         activeSegment = null
@@ -88,7 +89,7 @@ class SegmentTracker {
 
                 if (distToEnd <= FINISH_RADIUS_M) {
                     state = SegmentState.FINISHED
-                    return buildStatus(seg, nowMs, 0.0)
+                    return buildStatus(seg, nowMs, 0.0, lat, lng)
                 }
 
                 if (distToNearest > ABANDON_RADIUS_M) {
@@ -98,7 +99,7 @@ class SegmentTracker {
                     return SegmentStatus(state = SegmentState.IDLE)
                 }
 
-                return buildStatus(seg, nowMs, 0.0)
+                return buildStatus(seg, nowMs, 0.0, lat, lng)
             }
         }
     }
@@ -114,16 +115,20 @@ class SegmentTracker {
         seg: CachedSegment,
         nowMs: Long,
         distToStart: Double,
+        lat: Double,
+        lng: Double,
         triggerBeep: Boolean = false,
     ): SegmentStatus {
         val elapsed = if (state == SegmentState.ACTIVE || state == SegmentState.FINISHED)
             ((nowMs - startTimeMs) / 1000L).toInt() else 0
         val deltaVsKom = if ((state == SegmentState.ACTIVE || state == SegmentState.FINISHED) && seg.komSeconds != null)
             elapsed - seg.komSeconds else null
+        val distToEnd = haversineMetres(lat, lng, seg.endLat, seg.endLng)
         return SegmentStatus(
             state = state,
             segment = seg,
             distanceToStartMetres = distToStart.toInt(),
+            distanceRemainingMetres = if (state == SegmentState.ACTIVE) distToEnd else 0.0,
             deltaVsKomSeconds = deltaVsKom,
             triggerBeep = triggerBeep,
         )
