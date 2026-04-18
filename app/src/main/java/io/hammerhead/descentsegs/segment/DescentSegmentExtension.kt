@@ -14,7 +14,6 @@ import io.hammerhead.karooext.internal.Emitter
 import io.hammerhead.karooext.internal.ViewEmitter
 import io.hammerhead.karooext.models.DataPoint
 import io.hammerhead.karooext.models.DataType
-import io.hammerhead.karooext.models.KarooEvent
 import io.hammerhead.karooext.models.OnLocationChanged
 import io.hammerhead.karooext.models.PlayBeepPattern
 import io.hammerhead.karooext.models.StreamState
@@ -108,9 +107,7 @@ class DescentSegmentDataType(
             var lastRemaining = -1
             var lastState = SegmentState.IDLE
 
-            karooSystem.addConsumer { event: KarooEvent ->
-                if (event !is OnLocationChanged) return@addConsumer
-
+            karooSystem.addConsumer { event: OnLocationChanged ->
                 val lat = event.lat
                 val lng = event.lng
                 val nowMs = System.currentTimeMillis()
