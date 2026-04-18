@@ -63,20 +63,19 @@ class StravaApiClient(private val creds: StravaCredentials) {
 
     private fun parseSegment(seg: JSONObject, token: String): CachedSegment? {
         return try {
-            // Negative average_grade = net descent
             if (seg.optDouble("average_grade", 0.0) >= 0.0) return null
-
             val start = seg.getJSONArray("start_latlng")
             val end = seg.getJSONArray("end_latlng")
             if (start.length() < 2 || end.length() < 2) return null
-
             val id = seg.getLong("id")
-            val komSeconds = seg.optJSONObject("xoms")
+            val detail = fetchSegmentDetail(id, token)
+            val komSeconds = detail?.optJSONObject("xoms")
                 ?.optString("kom")?.let { parseTimeString(it) }
-            val prSeconds = seg.optJSONObject("athlete_segment_stats")
+            val prSeconds = detail?.optJSONObject("athlete_segment_stats")
                 ?.optInt("pr_elapsed_time", -1)?.takeIf { it > 0 }
-                ?: fetchPr(id, token)
-
+                ?: seg.optJSONObject("athlete_segment_stats")
+                    ?.optInt("pr_elapsed_time", -1)?.takeIf { it > 0 }
+            Log.d(TAG, "Segment: ${seg.optString("name")} KOM=$komSeconds PR=$prSeconds")
             CachedSegment(
                 id = id,
                 name = seg.getString("name"),
@@ -94,7 +93,7 @@ class StravaApiClient(private val creds: StravaCredentials) {
         }
     }
 
-    private fun fetchPr(segId: Long, token: String): Int? {
+    private fun fetchSegmentDetail(segId: Long, token: String): JSONObject? {
         return try {
             val req = Request.Builder()
                 .url("https://www.strava.com/api/v3/segments/$segId")
@@ -103,11 +102,11 @@ class StravaApiClient(private val creds: StravaCredentials) {
             http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return null
                 JSONObject(resp.body!!.string())
-                    .optJSONObject("athlete_segment_stats")
-                    ?.optInt("pr_elapsed_time", -1)
-                    ?.takeIf { it > 0 }
             }
-        } catch (e: Exception) { null }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch segment $segId: ${e.message}")
+            null
+        }
     }
 
     private fun parseTimeString(t: String): Int? {
