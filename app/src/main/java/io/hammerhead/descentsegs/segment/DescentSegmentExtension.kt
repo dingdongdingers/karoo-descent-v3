@@ -96,7 +96,6 @@ class DescentSegmentDataType(
 
         val karooSystem = KarooSystemService(appContext)
 
-        // For cycling between multiple approaching segments
         var nearbyApproaching = mutableListOf<CachedSegment>()
         var cycleIndex = 0
         var lastCycleMs = 0L
@@ -107,7 +106,8 @@ class DescentSegmentDataType(
             if (!connected) return@connect
 
             var lastDistBucket = -1
-            var lastElapsed = -1
+            var lastDeltaBucket = -1
+            var lastRemaining = -1
             var lastState = SegmentState.IDLE
 
             karooSystem.addConsumer { event: KarooEvent ->
@@ -117,14 +117,8 @@ class DescentSegmentDataType(
                 val lng = event.lng
                 val nowMs = System.currentTimeMillis()
 
-                writeLog("GPS lat=$lat lng=$lng state=${tracker.onLocation(lat, lng, nowMs, segments).state}")
-
-                // Find all segments within approach radius
-                val currentNearby = segments.filter { seg ->
-                    haversineMetres(lat, lng, seg.startLat, seg.startLng) <= APPROACH_RADIUS_M
-                }.toMutableList()
-
                 val status = tracker.onLocation(lat, lng, nowMs, segments)
+                writeLog("GPS state=${status.state} dist=${status.distanceToStartMetres} remaining=${status.distanceRemainingMetres} delta=${status.deltaVsKomSeconds}")
 
                 if (status.triggerBeep) {
                     writeLog("Beep for ${status.segment?.name}")
@@ -135,15 +129,26 @@ class DescentSegmentDataType(
                     )))
                 }
 
-                // If active or finished, just show that segment
+                // Active/finished — show timing view immediately
                 if (status.state == SegmentState.ACTIVE || status.state == SegmentState.FINISHED) {
                     nearbyApproaching.clear()
-                    emitter.updateView(buildView(context, status))
-                    lastState = status.state
+                    val deltaBucket = status.deltaVsKomSeconds ?: 0
+                    val remainingBucket = (status.distanceRemainingMetres / 50).toInt()
+                    val stateChanged = status.state != lastState
+                    if (stateChanged || deltaBucket != lastDeltaBucket || remainingBucket != lastRemaining) {
+                        lastState = status.state
+                        lastDeltaBucket = deltaBucket
+                        lastRemaining = remainingBucket
+                        emitter.updateView(buildView(context, status))
+                    }
                     return@addConsumer
                 }
 
-                // Handle multiple approaching segments — cycle every 2 seconds
+                // Find all segments within approach radius for cycling
+                val currentNearby = segments.filter { seg ->
+                    haversineMetres(lat, lng, seg.startLat, seg.startLng) <= APPROACH_RADIUS_M
+                }.toMutableList()
+
                 if (currentNearby.size > 1 && status.state == SegmentState.APPROACHING) {
                     nearbyApproaching = currentNearby
                     if (nowMs - lastCycleMs >= CYCLE_INTERVAL_MS) {
@@ -170,7 +175,6 @@ class DescentSegmentDataType(
                 if (stateChanged || distChanged) {
                     lastState = status.state
                     lastDistBucket = distBucket
-                    lastElapsed = 0
                     emitter.updateView(buildView(context, status))
                 }
             }
@@ -211,9 +215,10 @@ class DescentSegmentDataType(
                                  else context.getColor(R.color.behind)
                 val deltaText = if (delta != null) formatDelta(delta) else "--:--"
                 val deltaLabel = if (ahead) "AHEAD OF KOM" else "BEHIND KOM"
+                val remainingKm = String.format("%.1fkm", status.distanceRemainingMetres / 1000.0)
 
                 rv.setTextViewText(R.id.tv_line1, seg?.name ?: "")
-                rv.setTextViewText(R.id.tv_line2, deltaLabel)
+                rv.setTextViewText(R.id.tv_line2, "$deltaLabel  $remainingKm")
                 rv.setTextViewText(R.id.tv_line3, deltaText)
                 rv.setTextViewText(R.id.tv_line4,
                     "KOM ${seg?.komSeconds?.let { formatTime(it) } ?: "--:--"}" +
