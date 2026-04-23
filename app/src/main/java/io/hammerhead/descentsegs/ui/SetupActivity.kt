@@ -2,6 +2,7 @@ package io.hammerhead.descentsegs.ui
 
 import android.os.Bundle
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -13,6 +14,9 @@ import io.hammerhead.descentsegs.data.StravaCredentials
 import io.hammerhead.descentsegs.data.WORK_NAME
 import io.hammerhead.descentsegs.data.scheduleMonthlySync
 import io.hammerhead.descentsegs.data.syncNow
+import io.hammerhead.descentsegs.segment.isDebugEnabled
+import io.hammerhead.descentsegs.segment.setDebugEnabled
+import java.io.File
 
 class SetupActivity : AppCompatActivity() {
 
@@ -25,6 +29,8 @@ class SetupActivity : AppCompatActivity() {
     private lateinit var btnSyncNow: Button
     private lateinit var tvStatus: TextView
     private lateinit var tvSegmentList: TextView
+    private lateinit var cbDebug: CheckBox
+    private lateinit var btnClearLog: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,11 +46,24 @@ class SetupActivity : AppCompatActivity() {
         btnSyncNow = findViewById(R.id.btn_sync_now)
         tvStatus = findViewById(R.id.tv_status)
         tvSegmentList = findViewById(R.id.tv_segment_list)
+        cbDebug = findViewById(R.id.cb_debug)
+        btnClearLog = findViewById(R.id.btn_clear_log)
 
         if (creds.isConfigured()) {
             etClientId.setText(creds.clientId)
             etClientSecret.hint = "••••• (saved)"
             etRefreshToken.hint = "••••• (saved)"
+        }
+
+        cbDebug.isChecked = isDebugEnabled(this)
+        cbDebug.setOnCheckedChangeListener { _, checked ->
+            setDebugEnabled(this, checked)
+            tvStatus.text = if (checked) "Debug logging ON" else "Debug logging OFF"
+        }
+
+        btnClearLog.setOnClickListener {
+            File(filesDir, "app-log.txt").delete()
+            tvStatus.text = "Log cleared"
         }
 
         btnSave.setOnClickListener { saveAndSync() }
@@ -98,12 +117,10 @@ class SetupActivity : AppCompatActivity() {
         val segs = repo.getSegments()
         tvStatus.text = if (segs.isEmpty()) getString(R.string.status_idle)
                         else getString(R.string.status_ok, segs.size)
-        val filePath = creds.credentialsFilePath()
-        tvSegmentList.text = if (segs.isEmpty())
-            "None yet — save credentials and tap Sync Now.\n\nTip: You can also create a credentials file at:\n$filePath\n\nFormat:\nclient_id=YOUR_ID\nclient_secret=YOUR_SECRET\nrefresh_token=YOUR_TOKEN"
+        tvSegmentList.text = if (segs.isEmpty()) "None yet — save credentials and tap Sync Now."
         else segs.joinToString("\n") { s ->
             val pr = s.prSeconds?.let { " | PR ${fmt(it)}" } ?: ""
-            val kom = s.komSeconds?.let { " | KOM ${fmt(it)}" } ?: ""
+            val kom = s.komSeconds?.let { " | KOM ${fmt(it)}" } ?: " | KOM N/A"
             "↓ ${s.name}$pr$kom"
         }
     }
