@@ -29,8 +29,18 @@ private const val EXTENSION_ID = "descentsegs"
 const val DATATYPE_ID = "descent-segment-display"
 private const val CYCLE_INTERVAL_MS = 2000L
 private const val APPROACH_RADIUS_M = 300.0
+private const val DEBUG_PREF = "debug_logging"
+
+fun isDebugEnabled(ctx: Context): Boolean =
+    ctx.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        .getBoolean(DEBUG_PREF, false)
+
+fun setDebugEnabled(ctx: Context, enabled: Boolean) =
+    ctx.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        .edit().putBoolean(DEBUG_PREF, enabled).apply()
 
 fun writeLog(appContext: Context, msg: String) {
+    if (!isDebugEnabled(appContext)) return
     try {
         val logFile = File(appContext.filesDir, "app-log.txt")
         val timestamp = SimpleDateFormat("HH:mm:ss", Locale.UK).format(Date())
