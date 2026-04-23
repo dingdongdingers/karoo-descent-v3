@@ -2,10 +2,11 @@ package io.hammerhead.descentsegs.segment
 
 import io.hammerhead.descentsegs.data.CachedSegment
 import kotlin.math.min
+import kotlin.math.sqrt
 
 private const val APPROACH_RADIUS_M = 300.0
 private const val TRIGGER_RADIUS_M = 50.0
-private const val ABANDON_RADIUS_M = 100.0
+private const val ABANDON_RADIUS_M = 150.0
 private const val FINISH_RADIUS_M = 40.0
 
 enum class SegmentState { IDLE, APPROACHING, ACTIVE, FINISHED }
@@ -83,18 +84,21 @@ class SegmentTracker {
                     return SegmentStatus()
                 }
                 val distToEnd = haversineMetres(lat, lng, seg.endLat, seg.endLng)
-                val distToStart = haversineMetres(lat, lng, seg.startLat, seg.startLng)
-                val distToNearest = min(distToStart, distToEnd)
+
                 if (distToEnd <= FINISH_RADIUS_M) {
                     state = SegmentState.FINISHED
                     return buildStatus(seg, nowMs, 0.0, lat, lng)
                 }
-                if (distToNearest > ABANDON_RADIUS_M) {
+
+                // Only abandon if far from BOTH start and end
+                val distToStart = haversineMetres(lat, lng, seg.startLat, seg.startLng)
+                if (distToStart > ABANDON_RADIUS_M && distToEnd > ABANDON_RADIUS_M) {
                     state = SegmentState.IDLE
                     activeSegment = null
                     startTimeMs = 0L
                     return SegmentStatus(state = SegmentState.IDLE)
                 }
+
                 return buildStatus(seg, nowMs, 0.0, lat, lng)
             }
         }
