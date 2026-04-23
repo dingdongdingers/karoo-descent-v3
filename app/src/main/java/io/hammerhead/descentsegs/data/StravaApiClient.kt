@@ -69,13 +69,18 @@ class StravaApiClient(private val creds: StravaCredentials) {
             if (start.length() < 2 || end.length() < 2) return null
             val id = seg.getLong("id")
             val detail = fetchSegmentDetail(id, token)
-            val komSeconds = detail?.optJSONObject("xoms")
-                ?.optString("kom")?.let { parseTimeString(it) }
+
+            // Try every known location Strava puts KOM time
+            val komSeconds = extractKom(detail) ?: extractKom(seg)
+
             val prSeconds = detail?.optJSONObject("athlete_segment_stats")
                 ?.optInt("pr_elapsed_time", -1)?.takeIf { it > 0 }
                 ?: seg.optJSONObject("athlete_segment_stats")
                     ?.optInt("pr_elapsed_time", -1)?.takeIf { it > 0 }
-            Log.d(TAG, "Segment: ${seg.optString("name")} KOM=$komSeconds PR=$prSeconds")
+
+            Log.d(TAG, "Segment '${seg.optString("name")}' KOM=$komSeconds PR=$prSeconds " +
+                "xoms=${detail?.optJSONObject("xoms")?.toString()}")
+
             CachedSegment(
                 id = id,
                 name = seg.getString("name"),
@@ -91,6 +96,28 @@ class StravaApiClient(private val creds: StravaCredentials) {
             Log.w(TAG, "Skip segment: ${e.message}")
             null
         }
+    }
+
+    private fun extractKom(json: JSONObject?): Int? {
+        if (json == null) return null
+        val xoms = json.optJSONObject("xoms") ?: return null
+        // Try string format "6:34"
+        val komStr = xoms.optString("kom", "")
+        if (komStr.isNotBlank() && komStr != "null") {
+            parseTimeString(komStr)?.let { return it }
+        }
+        // Try overall effort elapsed_time
+        xoms.optJSONObject("overall")
+            ?.optInt("elapsed_time", -1)
+            ?.takeIf { it > 0 }
+            ?.let { return it }
+        // Try kom_efforts
+        json.optJSONObject("kom_efforts")
+            ?.optJSONObject("overall")
+            ?.optInt("elapsed_time", -1)
+            ?.takeIf { it > 0 }
+            ?.let { return it }
+        return null
     }
 
     private fun fetchSegmentDetail(segId: Long, token: String): JSONObject? {
