@@ -1,7 +1,6 @@
 package io.hammerhead.descentsegs.segment
 
 import io.hammerhead.descentsegs.data.CachedSegment
-import kotlin.math.min
 
 private const val APPROACH_RADIUS_M = 300.0
 private const val TRIGGER_RADIUS_M = 50.0
@@ -65,10 +64,7 @@ class SegmentTracker {
                         if (beep) beepedForSegmentId = nearest.id
                         buildStatus(nearest, nowMs, dist, lat, lng, triggerBeep = beep)
                     }
-                    dist <= APPROACH_RADIUS_M -> {
-                        // In range but moving away — show approaching but no beep
-                        buildStatus(nearest, nowMs, dist, lat, lng)
-                    }
+                    dist <= APPROACH_RADIUS_M -> buildStatus(nearest, nowMs, dist, lat, lng)
                     else -> SegmentStatus(state = SegmentState.IDLE)
                 }
             }
@@ -129,21 +125,14 @@ class SegmentTracker {
         prevLng = null
     }
 
-    /**
-     * Returns true if we're moving towards the segment start point.
-     * Compares current distance to start vs previous distance to start.
-     */
     private fun isMovingTowardsStart(lat: Double, lng: Double, seg: CachedSegment): Boolean {
         val prev = prevLat ?: return true
         val prevL = prevLng ?: return true
         val prevDist = haversineMetres(prev, prevL, seg.startLat, seg.startLng)
         val currDist = haversineMetres(lat, lng, seg.startLat, seg.startLng)
-        return currDist <= prevDist + 10 // allow 10m tolerance for GPS jitter
+        return currDist <= prevDist + 10
     }
 
-    /**
-     * Returns true if we're moving towards the segment end point (i.e. riding the segment).
-     */
     private fun isMovingTowardsEnd(lat: Double, lng: Double, seg: CachedSegment): Boolean {
         val prev = prevLat ?: return true
         val prevL = prevLng ?: return true
@@ -162,9 +151,21 @@ class SegmentTracker {
     ): SegmentStatus {
         val elapsed = if (state == SegmentState.ACTIVE || state == SegmentState.FINISHED)
             ((nowMs - startTimeMs) / 1000L).toInt() else 0
-        val deltaVsKom = if ((state == SegmentState.ACTIVE || state == SegmentState.FINISHED) && seg.komSeconds != null)
-            elapsed - seg.komSeconds else null
+
+        // Distance covered = total segment distance minus distance remaining to end
         val distToEnd = haversineMetres(lat, lng, seg.endLat, seg.endLng)
+        val distCovered = (seg.distanceMetres - distToEnd).coerceAtLeast(0.0)
+        val fractionComplete = if (seg.distanceMetres > 0)
+            (distCovered / seg.distanceMetres).coerceIn(0.0, 1.0) else 0.0
+
+        // Expected KOM time at this point in the segment based on distance covered
+        // At fraction=0 (start): expectedKom=0, delta=0
+        // At fraction=1 (end): expectedKom=komSeconds, delta=elapsed-komSeconds
+        val deltaVsKom = if ((state == SegmentState.ACTIVE || state == SegmentState.FINISHED) && seg.komSeconds != null) {
+            val expectedKomAtThisPoint = (fractionComplete * seg.komSeconds).toInt()
+            elapsed - expectedKomAtThisPoint
+        } else null
+
         return SegmentStatus(
             state = state,
             segment = seg,
