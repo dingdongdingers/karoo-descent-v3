@@ -27,6 +27,7 @@ import java.util.Locale
 private const val TAG = "DescentSegExt"
 private const val EXTENSION_ID = "descentsegs"
 const val DATATYPE_ID = "descent-segment-display"
+const val DATATYPE_DISTANCE_ID = "descent-segment-distance"
 private const val CYCLE_INTERVAL_MS = 2000L
 private const val APPROACH_RADIUS_M = 300.0
 private const val DEBUG_PREF = "debug_logging"
@@ -50,10 +51,18 @@ fun writeLog(appContext: Context, msg: String) {
     }
 }
 
+// Shared state between both data types
+object ActiveRideState {
+    @Volatile var lastStatus: SegmentStatus = SegmentStatus()
+}
+
 class DescentSegmentExtension : KarooExtension(EXTENSION_ID, "1") {
 
     override val types by lazy {
-        listOf(DescentSegmentDataType(EXTENSION_ID, applicationContext))
+        listOf(
+            DescentSegmentDataType(EXTENSION_ID, applicationContext),
+            DescentSegmentDistanceType(EXTENSION_ID, applicationContext),
+        )
     }
 
     override fun onCreate() {
@@ -69,6 +78,8 @@ class DescentSegmentExtension : KarooExtension(EXTENSION_ID, "1") {
         writeLog(applicationContext, "Extension destroyed")
     }
 }
+
+// ─── Graphical data field (main display) ────────────────────────────────────
 
 class DescentSegmentDataType(
     extension: String,
@@ -122,6 +133,9 @@ class DescentSegmentDataType(
                 val lng = event.lng
                 val nowMs = System.currentTimeMillis()
                 val status = tracker.onLocation(lat, lng, nowMs, segments)
+
+                // Share status with distance field
+                ActiveRideState.lastStatus = status
 
                 writeLog(appContext, "GPS state=${status.state} dist=${status.distanceToStartMetres} remaining=${"%.0f".format(status.distanceRemainingMetres)} delta=${status.deltaVsKomSeconds}")
 
@@ -219,10 +233,9 @@ class DescentSegmentDataType(
                 val deltaText = if (delta != null) formatDelta(delta) else "--:--"
                 val deltaLabel = if (!hasKom) "NO KOM DATA"
                                  else if (ahead) "AHEAD OF KOM" else "BEHIND KOM"
-                val remainingKm = String.format("%.1fkm", status.distanceRemainingMetres / 1000.0)
 
                 rv.setTextViewText(R.id.tv_line1, seg?.name ?: "")
-                rv.setTextViewText(R.id.tv_line2, "$deltaLabel  $remainingKm")
+                rv.setTextViewText(R.id.tv_line2, deltaLabel)
                 rv.setTextViewText(R.id.tv_line3, deltaText)
                 rv.setTextViewText(R.id.tv_line4,
                     "KOM ${seg?.komSeconds?.let { formatTime(it) } ?: "N/A"}" +
@@ -235,5 +248,44 @@ class DescentSegmentDataType(
         }
 
         return rv
+    }
+}
+
+// ─── Numeric distance remaining field ───────────────────────────────────────
+
+class DescentSegmentDistanceType(
+    extension: String,
+    private val appContext: Context,
+) : DataTypeImpl(extension, DATATYPE_DISTANCE_ID) {
+
+    override fun startStream(emitter: Emitter<StreamState>) {
+        // Emit distance remaining in km as a numeric value
+        // Karoo will display this with the unit label from extension_info.xml
+        var lastRemaining = -1.0
+
+        // Poll the shared state every second
+        val thread = Thread {
+            while (!Thread.currentThread().isInterrupted) {
+                try {
+                    val status = ActiveRideState.lastStatus
+                    val remainingKm = if (status.state == SegmentState.ACTIVE)
+                        status.distanceRemainingMetres / 1000.0 else 0.0
+
+                    if (Math.abs(remainingKm - lastRemaining) >= 0.05) {
+                        lastRemaining = remainingKm
+                        emitter.onNext(StreamState.Streaming(
+                            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to remainingKm))
+                        ))
+                    }
+                    Thread.sleep(1000)
+                } catch (e: InterruptedException) {
+                    break
+                }
+            }
+        }
+        thread.isDaemon = true
+        thread.start()
+
+        emitter.setCancellable { thread.interrupt() }
     }
 }
