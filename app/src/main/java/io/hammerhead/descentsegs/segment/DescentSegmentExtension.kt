@@ -259,23 +259,25 @@ class DescentSegmentDistanceType(
 ) : DataTypeImpl(extension, DATATYPE_DISTANCE_ID) {
 
     override fun startStream(emitter: Emitter<StreamState>) {
-        // Emit distance remaining in km as a numeric value
-        // Karoo will display this with the unit label from extension_info.xml
-        var lastRemaining = -1.0
+        emitter.onNext(StreamState.Streaming(
+            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to 0.0))
+        ))
+    }
 
-        // Poll the shared state every second
+    override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
+        emitter.onNext(UpdateGraphicConfig(showHeader = false))
+        emitter.updateView(buildDistanceView(context, 0.0))
+
         val thread = Thread {
+            var lastRemaining = -1.0
             while (!Thread.currentThread().isInterrupted) {
                 try {
                     val status = ActiveRideState.lastStatus
                     val remainingKm = if (status.state == SegmentState.ACTIVE)
                         status.distanceRemainingMetres / 1000.0 else 0.0
-
-                    if (Math.abs(remainingKm - lastRemaining) >= 0.05) {
+                    if (Math.abs(remainingKm - lastRemaining) >= 0.01) {
                         lastRemaining = remainingKm
-                        emitter.onNext(StreamState.Streaming(
-                            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to remainingKm))
-                        ))
+                        emitter.updateView(buildDistanceView(context, remainingKm))
                     }
                     Thread.sleep(1000)
                 } catch (e: InterruptedException) {
@@ -287,5 +289,13 @@ class DescentSegmentDistanceType(
         thread.start()
 
         emitter.setCancellable { thread.interrupt() }
+    }
+
+    private fun buildDistanceView(context: Context, remainingKm: Double): RemoteViews {
+        val rv = RemoteViews(context.packageName, R.layout.datafield_distance)
+        rv.setTextViewText(R.id.tv_distance_value,
+            if (remainingKm > 0) String.format("%.2f", remainingKm) else "--")
+        rv.setTextViewText(R.id.tv_distance_unit, "km remaining")
+        return rv
     }
 }
