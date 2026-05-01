@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ExtensionInfo
-    id="io.hammerhead.descentsegs"
+    id="descentsegs"
     displayName="Descent Segments"
     scansDevices="false">
 
@@ -9,5 +9,12 @@
         displayName="Descent Segment"
         description="Live data for starred descending segments"
         graphical="true" />
+
+    <DataType
+        typeId="descent-segment-distance"
+        displayName="Descent Remaining"
+        description="Distance remaining in current descent segment (km)"
+        graphical="false"
+        unitType="km" />
 
 </ExtensionInfo>
