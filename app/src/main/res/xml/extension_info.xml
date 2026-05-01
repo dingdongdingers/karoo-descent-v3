@@ -13,8 +13,9 @@
     <DataType
         typeId="descent-segment-distance"
         displayName="Descent Remaining"
-        description="Distance remaining in current descent segment (km)"
-        graphical="false"
-        unitType="km" />
+        description="Distance remaining in current descent segment"
+        graphical="true" />
 
 </ExtensionInfo>
+
+
