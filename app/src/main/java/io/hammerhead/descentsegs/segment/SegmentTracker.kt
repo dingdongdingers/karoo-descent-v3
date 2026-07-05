@@ -25,6 +25,8 @@ class SegmentTracker {
     private var beepedForSegmentId: Long? = null
     private var prevLat: Double? = null
     private var prevLng: Double? = null
+    // Cumulative distance travelled since segment start
+    private var distanceTravelledM = 0.0
 
     fun onLocation(
         lat: Double,
@@ -50,16 +52,14 @@ class SegmentTracker {
                     haversineMetres(lat, lng, seg.startLat, seg.startLng)
                 } ?: return SegmentStatus(state = SegmentState.IDLE)
                 val dist = haversineMetres(lat, lng, nearest.startLat, nearest.startLng)
-
                 return when {
-                    // Only trigger ACTIVE if clearly moving towards the end
                     dist <= TRIGGER_RADIUS_M && isMovingTowardsEnd(lat, lng, nearest) -> {
                         state = SegmentState.ACTIVE
                         activeSegment = nearest
                         startTimeMs = nowMs
+                        distanceTravelledM = 0.0
                         buildStatus(nearest, nowMs, 0.0, lat, lng)
                     }
-                    // Only show APPROACHING if clearly moving towards the start
                     dist <= APPROACH_RADIUS_M && isMovingTowardsStart(lat, lng, nearest) -> {
                         if (state != SegmentState.APPROACHING || activeSegment?.id != nearest.id) {
                             state = SegmentState.APPROACHING
@@ -85,6 +85,7 @@ class SegmentTracker {
                     dist <= TRIGGER_RADIUS_M && isMovingTowardsEnd(lat, lng, seg) -> {
                         state = SegmentState.ACTIVE
                         startTimeMs = nowMs
+                        distanceTravelledM = 0.0
                         buildStatus(seg, nowMs, 0.0, lat, lng)
                     }
                     dist <= APPROACH_RADIUS_M -> buildStatus(seg, nowMs, dist, lat, lng)
@@ -102,6 +103,17 @@ class SegmentTracker {
                     state = SegmentState.IDLE
                     return SegmentStatus()
                 }
+
+                // Accumulate distance from GPS ticks
+                val pLat = prevLat
+                val pLng = prevLng
+                if (pLat != null && pLng != null) {
+                    val step = haversineMetres(pLat, pLng, lat, lng)
+                    if (step < 50.0) { // ignore GPS jumps > 50m
+                        distanceTravelledM += step
+                    }
+                }
+
                 val distToEnd = haversineMetres(lat, lng, seg.endLat, seg.endLng)
                 val distToStart = haversineMetres(lat, lng, seg.startLat, seg.startLng)
 
@@ -110,11 +122,11 @@ class SegmentTracker {
                     return buildStatus(seg, nowMs, 0.0, lat, lng)
                 }
 
-                // Abandon if far from both ends — went wrong direction
                 if (distToStart > ABANDON_RADIUS_M && distToEnd > ABANDON_RADIUS_M) {
                     state = SegmentState.IDLE
                     activeSegment = null
                     startTimeMs = 0L
+                    distanceTravelledM = 0.0
                     return SegmentStatus(state = SegmentState.IDLE)
                 }
 
@@ -130,24 +142,23 @@ class SegmentTracker {
         beepedForSegmentId = null
         prevLat = null
         prevLng = null
+        distanceTravelledM = 0.0
     }
 
-    // Moving towards start = current distance to start is less than previous
     private fun isMovingTowardsStart(lat: Double, lng: Double, seg: CachedSegment): Boolean {
         val pLat = prevLat ?: return true
         val pLng = prevLng ?: return true
         val prevDist = haversineMetres(pLat, pLng, seg.startLat, seg.startLng)
         val currDist = haversineMetres(lat, lng, seg.startLat, seg.startLng)
-        return currDist < prevDist // strictly decreasing, no tolerance
+        return currDist < prevDist
     }
 
-    // Moving towards end = current distance to end is less than previous
     private fun isMovingTowardsEnd(lat: Double, lng: Double, seg: CachedSegment): Boolean {
         val pLat = prevLat ?: return true
         val pLng = prevLng ?: return true
         val prevDist = haversineMetres(pLat, pLng, seg.endLat, seg.endLng)
         val currDist = haversineMetres(lat, lng, seg.endLat, seg.endLng)
-        return currDist < prevDist // strictly decreasing, no tolerance
+        return currDist < prevDist
     }
 
     private fun buildStatus(
@@ -161,11 +172,16 @@ class SegmentTracker {
         val elapsed = if (state == SegmentState.ACTIVE || state == SegmentState.FINISHED)
             ((nowMs - startTimeMs) / 1000L).toInt() else 0
 
-        val distToEnd = haversineMetres(lat, lng, seg.endLat, seg.endLng)
-        val distCovered = (seg.distanceMetres - distToEnd).coerceAtLeast(0.0)
+        // Use cumulative distance travelled for fraction complete
+        // This is more reliable than distance-to-end when GPS is jittery
         val fractionComplete = if (seg.distanceMetres > 0)
-            (distCovered / seg.distanceMetres).coerceIn(0.0, 1.0) else 0.0
+            (distanceTravelledM / seg.distanceMetres).coerceIn(0.0, 1.0) else 0.0
 
+        val remainingM = (seg.distanceMetres - distanceTravelledM).coerceAtLeast(0.0)
+
+        // Delta: your elapsed vs where KOM rider would be at same distance
+        // At fraction=0: expectedKom=0, delta=0 ✓
+        // At fraction=1: expectedKom=komSeconds, delta=elapsed-komSeconds ✓
         val deltaVsKom = if ((state == SegmentState.ACTIVE || state == SegmentState.FINISHED)
             && seg.komSeconds != null) {
             val expectedKomAtThisPoint = (fractionComplete * seg.komSeconds).toInt()
@@ -176,7 +192,7 @@ class SegmentTracker {
             state = state,
             segment = seg,
             distanceToStartMetres = distToStart.toInt(),
-            distanceRemainingMetres = if (state == SegmentState.ACTIVE) distToEnd else 0.0,
+            distanceRemainingMetres = if (state == SegmentState.ACTIVE) remainingM else 0.0,
             deltaVsKomSeconds = deltaVsKom,
             triggerBeep = triggerBeep,
         )
