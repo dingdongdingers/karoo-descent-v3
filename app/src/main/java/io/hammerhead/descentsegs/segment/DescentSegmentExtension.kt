@@ -51,7 +51,6 @@ fun writeLog(appContext: Context, msg: String) {
     }
 }
 
-// Shared state between both data types
 object ActiveRideState {
     @Volatile var lastStatus: SegmentStatus = SegmentStatus()
 }
@@ -78,8 +77,6 @@ class DescentSegmentExtension : KarooExtension(EXTENSION_ID, "1") {
         writeLog(applicationContext, "Extension destroyed")
     }
 }
-
-// ─── Graphical data field (main display) ────────────────────────────────────
 
 class DescentSegmentDataType(
     extension: String,
@@ -125,7 +122,7 @@ class DescentSegmentDataType(
 
             var lastDistBucket = -1
             var lastDeltaBucket = -1
-            var lastRemaining = -1
+            var lastRemainingBucket = -1
             var lastState = SegmentState.IDLE
 
             karooSystem.addConsumer { event: OnLocationChanged ->
@@ -134,7 +131,6 @@ class DescentSegmentDataType(
                 val nowMs = System.currentTimeMillis()
                 val status = tracker.onLocation(lat, lng, nowMs, segments)
 
-                // Share status with distance field
                 ActiveRideState.lastStatus = status
 
                 writeLog(appContext, "GPS state=${status.state} dist=${status.distanceToStartMetres} remaining=${"%.0f".format(status.distanceRemainingMetres)} delta=${status.deltaVsKomSeconds}")
@@ -151,12 +147,12 @@ class DescentSegmentDataType(
                 if (status.state == SegmentState.ACTIVE || status.state == SegmentState.FINISHED) {
                     nearbyApproaching.clear()
                     val deltaBucket = status.deltaVsKomSeconds ?: 0
-                    val remainingBucket = (status.distanceRemainingMetres / 50).toInt()
+                    val remainingBucket = (status.distanceRemainingMetres / 10).toInt()
                     val stateChanged = status.state != lastState
-                    if (stateChanged || deltaBucket != lastDeltaBucket || remainingBucket != lastRemaining) {
+                    if (stateChanged || deltaBucket != lastDeltaBucket || remainingBucket != lastRemainingBucket) {
                         lastState = status.state
                         lastDeltaBucket = deltaBucket
-                        lastRemaining = remainingBucket
+                        lastRemainingBucket = remainingBucket
                         emitter.updateView(buildView(context, status))
                     }
                     return@addConsumer
@@ -251,8 +247,6 @@ class DescentSegmentDataType(
     }
 }
 
-// ─── Numeric distance remaining field ───────────────────────────────────────
-
 class DescentSegmentDistanceType(
     extension: String,
     private val appContext: Context,
@@ -265,19 +259,24 @@ class DescentSegmentDistanceType(
     }
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
+        writeLog(appContext, "DistanceField startView preview=${config.preview}")
         emitter.onNext(UpdateGraphicConfig(showHeader = false))
-        emitter.updateView(buildDistanceView(context, 0.0))
+        emitter.updateView(buildDistanceView(context, 0.0, false))
 
         val thread = Thread {
-            var lastRemaining = -1.0
+            var lastRemainingBucket = -1
             while (!Thread.currentThread().isInterrupted) {
                 try {
                     val status = ActiveRideState.lastStatus
-                    val remainingKm = if (status.state == SegmentState.ACTIVE)
+                    val isActive = status.state == SegmentState.ACTIVE
+                    val remainingKm = if (isActive)
                         status.distanceRemainingMetres / 1000.0 else 0.0
-                    if (Math.abs(remainingKm - lastRemaining) >= 0.01) {
-                        lastRemaining = remainingKm
-                        emitter.updateView(buildDistanceView(context, remainingKm))
+                    val bucket = (remainingKm * 10).toInt() // update every 100m
+
+                    if (bucket != lastRemainingBucket) {
+                        lastRemainingBucket = bucket
+                        writeLog(appContext, "DistanceField update remaining=${String.format("%.2f", remainingKm)}km")
+                        emitter.updateView(buildDistanceView(context, remainingKm, isActive))
                     }
                     Thread.sleep(1000)
                 } catch (e: InterruptedException) {
@@ -291,11 +290,13 @@ class DescentSegmentDistanceType(
         emitter.setCancellable { thread.interrupt() }
     }
 
-    private fun buildDistanceView(context: Context, remainingKm: Double): RemoteViews {
+    private fun buildDistanceView(context: Context, remainingKm: Double, isActive: Boolean): RemoteViews {
         val rv = RemoteViews(context.packageName, R.layout.datafield_distance)
         rv.setTextViewText(R.id.tv_distance_value,
-            if (remainingKm > 0) String.format("%.2f", remainingKm) else "--")
+            if (isActive && remainingKm > 0) String.format("%.2f", remainingKm) else "--")
         rv.setTextViewText(R.id.tv_distance_unit, "km remaining")
+        rv.setTextColor(R.id.tv_distance_value, context.getColor(R.color.text_primary))
+        rv.setTextColor(R.id.tv_distance_unit, context.getColor(R.color.text_secondary))
         return rv
     }
 }
