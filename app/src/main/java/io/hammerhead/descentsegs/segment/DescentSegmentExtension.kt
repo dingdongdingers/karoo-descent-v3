@@ -23,6 +23,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CopyOnWriteArrayList
 
 private const val TAG = "DescentSegExt"
 private const val EXTENSION_ID = "descentsegs"
@@ -51,11 +52,18 @@ fun writeLog(appContext: Context, msg: String) {
     }
 }
 
-object ActiveRideState {
-    @Volatile var lastStatus: SegmentStatus = SegmentStatus()
+// Listeners that get called on every status update
+object StatusBroadcaster {
+    val listeners = CopyOnWriteArrayList<(SegmentStatus) -> Unit>()
+    fun emit(status: SegmentStatus) = listeners.forEach { it(status) }
 }
 
 class DescentSegmentExtension : KarooExtension(EXTENSION_ID, "1") {
+
+    private val tracker = SegmentTracker()
+    private val repo by lazy { SegmentRepository(applicationContext) }
+    private var karooSystem: KarooSystemService? = null
+    private var segments = listOf<CachedSegment>()
 
     override val types by lazy {
         listOf(
@@ -69,134 +77,120 @@ class DescentSegmentExtension : KarooExtension(EXTENSION_ID, "1") {
         Log.d(TAG, "Extension created")
         writeLog(applicationContext, "Extension created")
         scheduleMonthlySync(applicationContext)
-    }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "Extension destroyed")
-        writeLog(applicationContext, "Extension destroyed")
-    }
-}
+        segments = repo.getSegments()
+        writeLog(applicationContext, "Loaded ${segments.size} segments")
 
-class DescentSegmentDataType(
-    extension: String,
-    private val appContext: Context,
-) : DataTypeImpl(extension, DATATYPE_ID) {
-
-    private val tracker = SegmentTracker()
-    private val repo = SegmentRepository(appContext)
-
-    override fun startStream(emitter: Emitter<StreamState>) {
-        Log.d(TAG, "startStream called")
-        writeLog(appContext, "startStream called")
-        emitter.onNext(StreamState.Streaming(
-            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to 0.0))
-        ))
-    }
-
-    override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
-        Log.d(TAG, "startView called, preview=${config.preview}")
-        writeLog(appContext, "startView called preview=${config.preview}")
-
-        if (config.preview) {
-            emitter.updateView(buildView(context, SegmentStatus()))
-            return
-        }
-
-        val segments = repo.getSegments()
-        Log.d(TAG, "Loaded ${segments.size} segments for tracking")
-        writeLog(appContext, "Loaded ${segments.size} segments")
-
-        emitter.onNext(UpdateGraphicConfig(showHeader = false))
-        emitter.updateView(buildView(context, SegmentStatus()))
-
-        val karooSystem = KarooSystemService(appContext)
-        var nearbyApproaching = mutableListOf<CachedSegment>()
-        var cycleIndex = 0
-        var lastCycleMs = 0L
-
-        karooSystem.connect { connected ->
-            Log.d(TAG, "KarooSystem connected=$connected")
-            writeLog(appContext, "KarooSystem connected=$connected")
+        val ks = KarooSystemService(applicationContext)
+        karooSystem = ks
+        ks.connect { connected ->
+            writeLog(applicationContext, "KarooSystem connected=$connected")
             if (!connected) return@connect
+            var nearbyApproaching = mutableListOf<CachedSegment>()
+            var cycleIndex = 0
+            var lastCycleMs = 0L
 
-            var lastDistBucket = -1
-            var lastDeltaBucket = -1
-            var lastRemainingBucket = -1
-            var lastState = SegmentState.IDLE
-
-            karooSystem.addConsumer { event: OnLocationChanged ->
+            ks.addConsumer { event: OnLocationChanged ->
                 val lat = event.lat
                 val lng = event.lng
                 val nowMs = System.currentTimeMillis()
                 val status = tracker.onLocation(lat, lng, nowMs, segments)
 
-                ActiveRideState.lastStatus = status
-
-                writeLog(appContext, "GPS state=${status.state} dist=${status.distanceToStartMetres} remaining=${"%.0f".format(status.distanceRemainingMetres)} delta=${status.deltaVsKomSeconds}")
+                writeLog(applicationContext, "GPS state=${status.state} dist=${status.distanceToStartMetres} remaining=${"%.0f".format(status.distanceRemainingMetres)} delta=${status.deltaVsKomSeconds}")
 
                 if (status.triggerBeep) {
-                    writeLog(appContext, "Beep for ${status.segment?.name}")
-                    karooSystem.dispatch(PlayBeepPattern(listOf(
+                    writeLog(applicationContext, "Beep for ${status.segment?.name}")
+                    ks.dispatch(PlayBeepPattern(listOf(
                         PlayBeepPattern.Tone(frequency = 1800, durationMs = 100),
                         PlayBeepPattern.Tone(frequency = null, durationMs = 50),
                         PlayBeepPattern.Tone(frequency = 1800, durationMs = 100),
                     )))
                 }
 
-                if (status.state == SegmentState.ACTIVE || status.state == SegmentState.FINISHED) {
+                // Handle multiple approaching segments cycling
+                if (status.state == SegmentState.APPROACHING) {
+                    val currentNearby = segments.filter { seg ->
+                        haversineMetres(lat, lng, seg.startLat, seg.startLng) <= APPROACH_RADIUS_M
+                    }.toMutableList()
+                    if (currentNearby.size > 1) {
+                        nearbyApproaching = currentNearby
+                        if (nowMs - lastCycleMs >= CYCLE_INTERVAL_MS) {
+                            cycleIndex = (cycleIndex + 1) % nearbyApproaching.size
+                            lastCycleMs = nowMs
+                        }
+                        val displaySeg = nearbyApproaching.getOrNull(cycleIndex) ?: nearbyApproaching[0]
+                        val distToDisplay = haversineMetres(lat, lng, displaySeg.startLat, displaySeg.startLng).toInt()
+                        StatusBroadcaster.emit(SegmentStatus(
+                            state = SegmentState.APPROACHING,
+                            segment = displaySeg,
+                            distanceToStartMetres = distToDisplay,
+                        ))
+                        return@addConsumer
+                    }
+                } else {
                     nearbyApproaching.clear()
-                    val deltaBucket = status.deltaVsKomSeconds ?: 0
-                    val remainingBucket = (status.distanceRemainingMetres / 10).toInt()
-                    val stateChanged = status.state != lastState
-                    if (stateChanged || deltaBucket != lastDeltaBucket || remainingBucket != lastRemainingBucket) {
-                        lastState = status.state
-                        lastDeltaBucket = deltaBucket
-                        lastRemainingBucket = remainingBucket
-                        emitter.updateView(buildView(context, status))
-                    }
-                    return@addConsumer
                 }
 
-                val currentNearby = segments.filter { seg ->
-                    haversineMetres(lat, lng, seg.startLat, seg.startLng) <= APPROACH_RADIUS_M
-                }.toMutableList()
+                StatusBroadcaster.emit(status)
+            }
+        }
+    }
 
-                if (currentNearby.size > 1 && status.state == SegmentState.APPROACHING) {
-                    nearbyApproaching = currentNearby
-                    if (nowMs - lastCycleMs >= CYCLE_INTERVAL_MS) {
-                        cycleIndex = (cycleIndex + 1) % nearbyApproaching.size
-                        lastCycleMs = nowMs
-                    }
-                    val displaySeg = nearbyApproaching.getOrNull(cycleIndex) ?: nearbyApproaching[0]
-                    val distToDisplay = haversineMetres(lat, lng, displaySeg.startLat, displaySeg.startLng).toInt()
-                    val cycleStatus = SegmentStatus(
-                        state = SegmentState.APPROACHING,
-                        segment = displaySeg,
-                        distanceToStartMetres = distToDisplay,
-                    )
-                    emitter.updateView(buildView(context, cycleStatus))
-                    lastState = status.state
-                    return@addConsumer
-                }
+    override fun onDestroy() {
+        karooSystem?.disconnect()
+        karooSystem = null
+        super.onDestroy()
+        Log.d(TAG, "Extension destroyed")
+        writeLog(applicationContext, "Extension destroyed")
+    }
+}
 
-                val distBucket = status.distanceToStartMetres / 5
-                val stateChanged = status.state != lastState
-                val distChanged = distBucket != lastDistBucket
-                if (stateChanged || distChanged) {
-                    lastState = status.state
-                    lastDistBucket = distBucket
+// ─── Main graphical field ────────────────────────────────────────────────────
+
+class DescentSegmentDataType(
+    extension: String,
+    private val appContext: Context,
+) : DataTypeImpl(extension, DATATYPE_ID) {
+
+    override fun startStream(emitter: Emitter<StreamState>) {
+        writeLog(appContext, "Main startStream")
+        emitter.onNext(StreamState.Streaming(
+            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to 0.0))
+        ))
+    }
+
+    override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
+        writeLog(appContext, "Main startView preview=${config.preview}")
+        emitter.onNext(UpdateGraphicConfig(showHeader = false))
+        emitter.updateView(buildView(context, SegmentStatus()))
+        if (config.preview) return
+
+        var lastDeltaBucket = Int.MIN_VALUE
+        var lastRemainingBucket = Int.MIN_VALUE
+        var lastState = SegmentState.IDLE
+
+        val listener: (SegmentStatus) -> Unit = { status ->
+            val deltaBucket = status.deltaVsKomSeconds ?: 0
+            val remainingBucket = (status.distanceRemainingMetres / 25).toInt()
+            val stateChanged = status.state != lastState
+            if (stateChanged || deltaBucket != lastDeltaBucket || remainingBucket != lastRemainingBucket) {
+                lastState = status.state
+                lastDeltaBucket = deltaBucket
+                lastRemainingBucket = remainingBucket
+                try {
                     emitter.updateView(buildView(context, status))
+                } catch (e: Exception) {
+                    writeLog(appContext, "Main view update failed: ${e.message}")
                 }
             }
         }
 
-        emitter.setCancellable { karooSystem.disconnect() }
+        StatusBroadcaster.listeners.add(listener)
+        emitter.setCancellable { StatusBroadcaster.listeners.remove(listener) }
     }
 
     private fun buildView(context: Context, status: SegmentStatus): RemoteViews {
         val rv = RemoteViews(context.packageName, R.layout.datafield_unified)
-
         when (status.state) {
             SegmentState.IDLE, SegmentState.FINISHED -> {
                 rv.setTextViewText(R.id.tv_line1, "↓ No descent segment")
@@ -226,13 +220,9 @@ class DescentSegmentDataType(
                 val deltaColor = if (hasKom && ahead) context.getColor(R.color.ahead)
                                  else if (hasKom) context.getColor(R.color.behind)
                                  else context.getColor(R.color.text_secondary)
-                val deltaText = if (delta != null) formatDelta(delta) else "--:--"
-                val deltaLabel = if (!hasKom) "NO KOM DATA"
-                                 else if (ahead) "AHEAD OF KOM" else "BEHIND KOM"
-
                 rv.setTextViewText(R.id.tv_line1, seg?.name ?: "")
-                rv.setTextViewText(R.id.tv_line2, deltaLabel)
-                rv.setTextViewText(R.id.tv_line3, deltaText)
+                rv.setTextViewText(R.id.tv_line2, if (!hasKom) "NO KOM DATA" else if (ahead) "AHEAD OF KOM" else "BEHIND KOM")
+                rv.setTextViewText(R.id.tv_line3, if (delta != null) formatDelta(delta) else "--:--")
                 rv.setTextViewText(R.id.tv_line4,
                     "KOM ${seg?.komSeconds?.let { formatTime(it) } ?: "N/A"}" +
                     "  PR ${seg?.prSeconds?.let { formatTime(it) } ?: "--:--"}")
@@ -242,10 +232,11 @@ class DescentSegmentDataType(
                 rv.setTextColor(R.id.tv_line4, context.getColor(R.color.text_secondary))
             }
         }
-
         return rv
     }
 }
+
+// ─── Distance remaining field ─────────────────────────────────────────────────
 
 class DescentSegmentDistanceType(
     extension: String,
@@ -253,41 +244,36 @@ class DescentSegmentDistanceType(
 ) : DataTypeImpl(extension, DATATYPE_DISTANCE_ID) {
 
     override fun startStream(emitter: Emitter<StreamState>) {
+        writeLog(appContext, "Distance startStream")
         emitter.onNext(StreamState.Streaming(
             DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to 0.0))
         ))
     }
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
-        writeLog(appContext, "DistanceField startView preview=${config.preview}")
+        writeLog(appContext, "Distance startView preview=${config.preview}")
         emitter.onNext(UpdateGraphicConfig(showHeader = false))
         emitter.updateView(buildDistanceView(context, 0.0, false))
+        if (config.preview) return
 
-        val thread = Thread {
-            var lastRemainingBucket = -1
-            while (!Thread.currentThread().isInterrupted) {
+        var lastRemainingBucket = Int.MIN_VALUE
+
+        val listener: (SegmentStatus) -> Unit = { status ->
+            val isActive = status.state == SegmentState.ACTIVE
+            val remainingKm = if (isActive) status.distanceRemainingMetres / 1000.0 else 0.0
+            val bucket = (remainingKm * 20).toInt() // update every 50m
+            if (bucket != lastRemainingBucket) {
+                lastRemainingBucket = bucket
                 try {
-                    val status = ActiveRideState.lastStatus
-                    val isActive = status.state == SegmentState.ACTIVE
-                    val remainingKm = if (isActive)
-                        status.distanceRemainingMetres / 1000.0 else 0.0
-                    val bucket = (remainingKm * 10).toInt() // update every 100m
-
-                    if (bucket != lastRemainingBucket) {
-                        lastRemainingBucket = bucket
-                        writeLog(appContext, "DistanceField update remaining=${String.format("%.2f", remainingKm)}km")
-                        emitter.updateView(buildDistanceView(context, remainingKm, isActive))
-                    }
-                    Thread.sleep(1000)
-                } catch (e: InterruptedException) {
-                    break
+                    emitter.updateView(buildDistanceView(context, remainingKm, isActive))
+                } catch (e: Exception) {
+                    writeLog(appContext, "Distance view update failed: ${e.message}")
                 }
             }
         }
-        thread.isDaemon = true
-        thread.start()
 
-        emitter.setCancellable { thread.interrupt() }
+        StatusBroadcaster.listeners.add(listener)
+        emitter.setCancellable { StatusBroadcaster.listeners.remove(listener) }
     }
 
     private fun buildDistanceView(context: Context, remainingKm: Double, isActive: Boolean): RemoteViews {
