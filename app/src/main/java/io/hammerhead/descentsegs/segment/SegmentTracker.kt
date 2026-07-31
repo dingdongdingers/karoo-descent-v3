@@ -4,8 +4,17 @@ import io.hammerhead.descentsegs.data.CachedSegment
 
 private const val APPROACH_RADIUS_M = 300.0
 private const val TRIGGER_RADIUS_M = 50.0
-private const val ABANDON_RADIUS_M = 150.0
 private const val FINISH_RADIUS_M = 40.0
+
+// Abandon detection: instead of a raw distance-to-endpoints check (which fires
+// for every rider in the middle of any segment >300m long), track whether the
+// rider is still making progress toward the end. Abandon only if distToEnd has
+// regressed meaningfully past the closest point reached, and stayed regressed
+// for several consecutive samples (filters single noisy GPS fixes and doesn't
+// punish a rider stopped at a light mid-descent, since a stationary rider isn't
+// regressing).
+private const val REGRESSION_THRESHOLD_M = 30.0
+private const val REGRESSION_TICK_LIMIT = 5
 
 enum class SegmentState { IDLE, APPROACHING, ACTIVE, FINISHED }
 
@@ -27,6 +36,10 @@ class SegmentTracker {
     private var prevLng: Double? = null
     // Cumulative distance travelled since segment start
     private var distanceTravelledM = 0.0
+    // Closest distance-to-end reached so far this ACTIVE run, and how many
+    // consecutive ticks distToEnd has been meaningfully worse than that best
+    private var bestDistToEndM = Double.MAX_VALUE
+    private var regressionTicks = 0
 
     fun onLocation(
         lat: Double,
@@ -58,6 +71,8 @@ class SegmentTracker {
                         activeSegment = nearest
                         startTimeMs = nowMs
                         distanceTravelledM = 0.0
+                        bestDistToEndM = Double.MAX_VALUE
+                        regressionTicks = 0
                         buildStatus(nearest, nowMs, 0.0, lat, lng)
                     }
                     dist <= APPROACH_RADIUS_M && isMovingTowardsStart(lat, lng, nearest) -> {
@@ -86,6 +101,8 @@ class SegmentTracker {
                         state = SegmentState.ACTIVE
                         startTimeMs = nowMs
                         distanceTravelledM = 0.0
+                        bestDistToEndM = Double.MAX_VALUE
+                        regressionTicks = 0
                         buildStatus(seg, nowMs, 0.0, lat, lng)
                     }
                     dist <= APPROACH_RADIUS_M -> buildStatus(seg, nowMs, dist, lat, lng)
@@ -122,15 +139,33 @@ class SegmentTracker {
                     return buildStatus(seg, nowMs, 0.0, lat, lng)
                 }
 
-                if (distToStart > ABANDON_RADIUS_M && distToEnd > ABANDON_RADIUS_M) {
+                // Track the closest approach to the end reached so far.
+                if (distToEnd < bestDistToEndM) {
+                    bestDistToEndM = distToEnd
+                }
+
+                // Abandon only if the rider has meaningfully regressed from
+                // their closest approach, for several consecutive samples —
+                // i.e. they've actually turned back or left the route, not
+                // just that they're 150m+ from both endpoints (true for the
+                // entire middle of any segment) or briefly noisy/stopped.
+                regressionTicks = if (distToEnd > bestDistToEndM + REGRESSION_THRESHOLD_M) {
+                    regressionTicks + 1
+                } else {
+                    0
+                }
+
+                if (regressionTicks >= REGRESSION_TICK_LIMIT) {
                     state = SegmentState.IDLE
                     activeSegment = null
                     startTimeMs = 0L
                     distanceTravelledM = 0.0
+                    bestDistToEndM = Double.MAX_VALUE
+                    regressionTicks = 0
                     return SegmentStatus(state = SegmentState.IDLE)
                 }
 
-                return buildStatus(seg, nowMs, 0.0, lat, lng)
+                return buildStatus(seg, nowMs, distToStart, lat, lng)
             }
         }
     }
@@ -143,6 +178,8 @@ class SegmentTracker {
         prevLat = null
         prevLng = null
         distanceTravelledM = 0.0
+        bestDistToEndM = Double.MAX_VALUE
+        regressionTicks = 0
     }
 
     private fun isMovingTowardsStart(lat: Double, lng: Double, seg: CachedSegment): Boolean {
