@@ -66,7 +66,7 @@ class SegmentTracker {
                 } ?: return SegmentStatus(state = SegmentState.IDLE)
                 val dist = haversineMetres(lat, lng, nearest.startLat, nearest.startLng)
                 return when {
-                    dist <= TRIGGER_RADIUS_M && isMovingTowardsEnd(lat, lng, nearest) -> {
+                    dist <= TRIGGER_RADIUS_M && (dist < 15.0 || isMovingTowardsEnd(lat, lng, nearest)) -> {
                         state = SegmentState.ACTIVE
                         activeSegment = nearest
                         startTimeMs = nowMs
@@ -97,7 +97,7 @@ class SegmentTracker {
                 }
                 val dist = haversineMetres(lat, lng, seg.startLat, seg.startLng)
                 return when {
-                    dist <= TRIGGER_RADIUS_M && isMovingTowardsEnd(lat, lng, seg) -> {
+                    dist <= TRIGGER_RADIUS_M && (dist < 15.0 || isMovingTowardsEnd(lat, lng, seg)) -> {
                         state = SegmentState.ACTIVE
                         startTimeMs = nowMs
                         distanceTravelledM = 0.0
