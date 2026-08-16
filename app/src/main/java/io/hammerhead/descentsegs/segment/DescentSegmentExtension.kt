@@ -200,18 +200,18 @@ class DescentSegmentDataType(
                 rv.setTextColor(R.id.tv_line1, context.getColor(R.color.text_secondary))
             }
             SegmentState.APPROACHING -> {
-                val dist = if (status.distanceToStartMetres > 50)
-                    "${status.distanceToStartMetres}m" else "GO!"
-                rv.setTextViewText(R.id.tv_line1, "↓ ${status.segment?.name ?: ""}")
-                rv.setTextViewText(R.id.tv_line2, "STARTING IN")
-                rv.setTextViewText(R.id.tv_line3, dist)
-                rv.setTextViewText(R.id.tv_line4,
-                    "KOM ${status.segment?.komSeconds?.let { formatTime(it) } ?: "N/A"}" +
-                    "  PR ${status.segment?.prSeconds?.let { formatTime(it) } ?: "--:--"}")
-                rv.setTextColor(R.id.tv_line1, context.getColor(R.color.accent))
-                rv.setTextColor(R.id.tv_line3, context.getColor(R.color.text_primary))
-                rv.setTextColor(R.id.tv_line4, context.getColor(R.color.text_secondary))
-            }
+    val dist = if (status.distanceToStartMetres > 50)
+        "${status.distanceToStartMetres}m" else "GO!"
+    rv.setTextViewText(R.id.tv_line1, "↓ ${status.segment?.name ?: ""}")
+    rv.setTextViewText(R.id.tv_line2, dist)
+    rv.setTextViewText(R.id.tv_line3, "")
+    rv.setTextViewText(R.id.tv_line4,
+        "KOM ${status.segment?.komSeconds?.let { formatTime(it) } ?: "N/A"}" +
+        "  PR ${status.segment?.prSeconds?.let { formatTime(it) } ?: "--:--"}")
+    rv.setTextColor(R.id.tv_line1, context.getColor(R.color.accent))
+    rv.setTextColor(R.id.tv_line2, context.getColor(R.color.text_primary))
+    rv.setTextColor(R.id.tv_line4, context.getColor(R.color.text_secondary))
+}
             SegmentState.ACTIVE -> {
                 val seg = status.segment
                 val delta = status.deltaVsKomSeconds
